@@ -6,7 +6,7 @@ import middy from "@middy/core";
 import {injectLambdaContext} from "@aws-lambda-powertools/logger";
 import {PnlMetrics} from "../../utils/PnlMetrics";
 import {PnlLogger} from "../../utils/PnlLogger";
-import {response} from "../../utils/PnlLambdaResponse";
+import {response} from "../../utils/utils";
 
 const logger = new PnlLogger().logger(process.env.SERVICE_NAME);
 const metrics = new PnlMetrics().metrics(process.env.NAMESPACE, process.env.SERVICE_NAME)

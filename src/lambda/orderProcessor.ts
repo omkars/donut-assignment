@@ -12,14 +12,20 @@ import {PnlLogger} from "../utils/PnlLogger";
 import {PnlMetrics} from "../utils/PnlMetrics";
 import {SQSEvent, Context} from "aws-lambda";
 import {MetricUnits} from "@aws-lambda-powertools/metrics";
-import {response} from "../utils/PnlLambdaResponse";
-import {OrderEvent} from "./orderGenerator";
-import {removeDependency} from "aws-cdk-lib/core/lib/deps";
+import {response, isSameDay} from "../utils/utils";
+import {OrderEvent, PnlOrder} from "./orderGenerator";
+import {SQS} from "aws-sdk";
+import {SendMessageRequest} from "aws-sdk/clients/sqs";
+const sqs = new SQS();
 
 const logger = new PnlLogger().logger(process.env.SERVICE_NAME);
 const metrics = new PnlMetrics().metrics(process.env.NAMESPACE, process.env.SERVICE_NAME)
 const client = new DynamoDBClient();
 const docClient = DynamoDBDocumentClient.from(client);
+const currentDateTime = new Date()
+const THRESHOLD_TIME_BEFORE_DELIVERY = 24 * 60 * 60 * 1000 // 24 hrs before delivery in miliseconds
+const sqsUrl = process.env.ORDERING_QUEUE_FIFO
+
 
 /**
  * Lambda to process orders coming through Ordering queue.
@@ -31,23 +37,13 @@ export const lambdaHandler = async(event: SQSEvent, context: Context) => {
     const batchItemFailures: any = []
     const record: OrderEvent = JSON.parse(event.Records[0].body);
     let statusCode: number = 500
+
     try {
-
-        console.log('>>>>>>>>>>>>>>>>>>>>>>>>>> INSIDE ', )
-
-        // An API call to DL management to find the available locker ID and assign it to the order
-        //Mimicing the process of fetching the locker
-        const lockerId = Math.floor(Math.random() * 8)
-
-        const queryCommand = new QueryCommand(queryCommandParam(record));
-        const getAllTodaysOrder: Record<string, NativeAttributeValue> = await docClient.send(queryCommand)
-
-        if(getAllTodaysOrder.Items.length > 0){
-            console.log('processing todays orders...')
-            const command = new UpdateCommand(updateCommandParam(record, lockerId))
-            const response: Record<string, NativeAttributeValue> = await docClient.send(command)
-        } else{
-            console.log('No Orders to process today!!!!!!!!!!!!!')
+        //check for same day order
+        if(isSameDay(new Date(record.deliveryDate), currentDateTime)) {
+            await processSameDayOrder(record)
+        } else {
+            await enqueueOrderFutureProcessing(record)
         }
         statusCode = 200
 
@@ -58,6 +54,29 @@ export const lambdaHandler = async(event: SQSEvent, context: Context) => {
     }
     metrics.publishStoredMetrics();
     return response(statusCode)
+}
+
+const enqueueOrderFutureProcessing = async(record: OrderEvent) => {
+    const timeDifference = new Date(record.deliveryDate).getTime() - currentDateTime.getTime()
+    const thresholdTime  = timeDifference - THRESHOLD_TIME_BEFORE_DELIVERY
+
+    const sqsParams: SendMessageRequest  = {
+        MessageBody: JSON.stringify(record),
+        QueueUrl: sqsUrl,
+        MessageGroupId: `1`,
+        DelaySeconds: Math.ceil(thresholdTime / 1000)
+    }
+    await sqs.sendMessage(sqsParams).promise();
+}
+
+
+const processSameDayOrder = async (record: OrderEvent) => {
+    // First make an An API call to DL management to find the available locker ID and assign it to the order
+    //Mimicing the process of fetching the locker
+    const lockerId = Math.floor(Math.random() * 8)
+    console.log('processing todays order...')
+    const command = new UpdateCommand(updateCommandParam(record, lockerId))
+    const response: Record<string, NativeAttributeValue> = await docClient.send(command)
 }
 
 /**
@@ -82,21 +101,6 @@ const updateCommandParam = (record: OrderEvent, lockerId: number): UpdateCommand
     },
     ConditionExpression: "attribute_not_exists(#updateTimestamp) AND attribute_not_exists(#lockerId)",
     ReturnValues: "ALL_NEW"
-})
-
-
-const queryCommandParam = (record: OrderEvent): QueryCommandInput => ({
-    TableName: 'PnlOrderingDataStore',
-    KeyConditionExpression: "#orderId = :orderId",
-    FilterExpression: "attribute_exists(deliveryDate) AND #deliveryDate = :todaysDate",
-    ExpressionAttributeValues: {
-        ":todaysDate": new Date().toISOString().split('T')[0],
-        ":orderId": record.orderId
-    },
-    ExpressionAttributeNames: {
-        '#orderId': 'orderId',
-        '#deliveryDate': 'deliveryDate'
-    }
 })
 
 export const handler = middy(lambdaHandler).use(injectLambdaContext(logger, {logEvent:true, clearState: true}))

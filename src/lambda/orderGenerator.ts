@@ -8,7 +8,7 @@ import {PnlLogger} from '../utils/PnlLogger'
 import {PnlMetrics} from '../utils/PnlMetrics'
 import {MetricUnits} from "@aws-lambda-powertools/metrics";
 import {Context} from "aws-lambda";
-import {response} from "../utils/PnlLambdaResponse";
+import {response} from "../utils/utils";
 
 const logger = new PnlLogger().logger(process.env.SERVICE_NAME);
 const metrics = new PnlMetrics().metrics(process.env.NAMESPACE, process.env.SERVICE_NAME)
@@ -48,7 +48,7 @@ export const lambdaHandler = async(event: any, context: Context) => {
                 source: sources[Math.floor(Math.random() + 0.5)],
                 customerEmail: 'mark@abc.com',
                 customerName: 'Mark Smith',
-                deliveryDate: new Date(currentDate.setDate(currentDate.getDate() + 0)).toISOString().split('T')[0],
+                deliveryDate: new Date(currentDate.setDate(currentDate.getDate() + 0)).toISOString(),
                 orderStatus: 'OrderSubmitted'
             }
             records.push(pushMessage(order))

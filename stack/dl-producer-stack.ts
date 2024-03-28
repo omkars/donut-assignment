@@ -48,14 +48,23 @@ export class DlProducerStack extends Stack {
     const pnlOrderProcessorLambda = new tsLambda.NodejsFunction(this,  'PnlOrderProcessorLambda', {
       runtime: jsLambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../src/lambda/orderProcessor.ts'),
-      handler: 'handler'
+      handler: 'handler',
+      environment: {
+        'NAMESPACE': 'PnlOrderingSystem',
+        'SERVICE_NAME': 'OrderProcessorService',
+        'ORDERING_QUEUE_FIFO': this.pnlFifoOrderingQueue.queueUrl,
+      }
     })
 
     // ************** Order Consumer Lambda **************
     const orderConsumerLambda = new tsLambda.NodejsFunction(this,  'PnlOrderConsumerLambda', {
       runtime: jsLambda.Runtime.NODEJS_20_X,
       entry: path.join(__dirname, '../src/lambda/consumers/orderConsumer.ts'),
-      handler: 'handler'
+      handler: 'handler',
+      environment: {
+        'NAMESPACE': 'PnlOrderingSystem',
+        'SERVICE_NAME': 'OrderConsumerService'
+      }
     })
     this.pnlFifoOrderingQueue.grantConsumeMessages(pnlOrderProcessorLambda)
 
